@@ -33,8 +33,13 @@ Django Odnoklassniki Discussions
 Покрытие методов API
 --------------------
 
-* [group.getInfo](http://apiok.ru/wiki/display/api/group.getInfo) – получение информации о группах;
-* [group.getInfo](http://apiok.ru/wiki/display/api/group.getMembers) – получение списка пользователей группы;
+* [discussions.getList](http://apiok.ru/wiki/display/api/discussions.getList) – получение списка дискуссий;
+* [discussions.get](http://apiok.ru/wiki/display/api/discussions.get) – получение подробной информации о дискуссии с возможностью в одном запросе получить информацию об упоминаемых в дискуссии объектах;
+* [discussions.getDiscussionLikes](http://apiok.ru/wiki/display/api/discussions.getDiscussionLikes) – получить список пользователей, поставивших "Класс" для дискуссии;
+* [discussions.getComments](http://apiok.ru/wiki/display/api/discussions.getComments) – получение списка комментариев к дискуссии;
+* [discussions.getComment](http://apiok.ru/wiki/display/api/discussions.getComment) – получение информации о комментарии к дискуссии;
+* [discussions.getCommentLikes](http://apiok.ru/wiki/display/api/discussions.getCommentLikes) – получение списка пользователей, поставивших "Класс" для указанного комментария;
+* [stream.get](http://apiok.ru/wiki/display/api/stream.get);
 
 Примеры использования
 ---------------------
