@@ -59,7 +59,7 @@ class OdnoklassnikiDiscussionsTest(TestCase):
     def test_fetch_comment_likes(self):
 
         discussion = DiscussionFactory(id=GROUP_COMMENT_WITH_MANY_LIKES1_DISCUSSION_ID, object_type='GROUP_TOPIC')
-        comment = CommentFactory(id=GROUP_COMMENT_WITH_MAtypeD, object_type='GROUP_TOPIC', discussion=discussion)
+        comment = CommentFactory(id=GROUP_COMMENT_WITH_MANY_LIKES1_ID, object_type='GROUP_TOPIC', discussion=discussion)
         users_initial = User.objects.count()
 
         users = comment.fetch_likes(all=True)
