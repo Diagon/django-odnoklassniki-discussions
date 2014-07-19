@@ -30,6 +30,8 @@ GROUP_COMMENT_WITH_MANY_LIKES1_ID = 'MTM5NDAwMzI5NjE2MzotNjAyOToxMzk0MDAzMjk2MTY
 GROUP4_ID = 50752764379349
 GROUP4_DISCUSSION_WITH_GROUP_COMMENTS_ID = 62520921350357
 
+GROUP_DISCUSSION_GHOST = 62671523553304
+
 class OdnoklassnikiDiscussionsTest(TestCase):
 
     def test_fetch_group_discussions(self):
@@ -140,6 +142,11 @@ class OdnoklassnikiDiscussionsTest(TestCase):
 
         instance.refresh()
         self.assertEqual(instance.message, message)
+
+        # TODO: fix this strange error
+        with self.assertRaises(KeyError):
+            instance = DiscussionFactory(id=GROUP_DISCUSSION_GHOST)
+            instance.refresh()
 
     def test_parse_discussion(self):
 
