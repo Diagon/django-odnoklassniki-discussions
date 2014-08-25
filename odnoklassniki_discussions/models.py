@@ -35,6 +35,7 @@ COMMENT_TYPES = ['ACTIVE_MESSAGE']
 
 DISCUSSION_TYPE_CHOICES = [(type, type) for type in DISCUSSION_TYPES]
 COMMENT_TYPE_CHOICES = [(type, type) for type in COMMENT_TYPES]
+DISCUSSION_TYPE_DEFAULT = 'GROUP_TOPIC'
 
 class DiscussionRemoteManager(OdnoklassnikiManager):
 
@@ -127,7 +128,7 @@ class Discussion(OdnoklassnikiPKModel):
     author_id = models.BigIntegerField(db_index=True)
     author = generic.GenericForeignKey('author_content_type', 'author_id')
 
-    object_type = models.CharField(max_length=20, choices=DISCUSSION_TYPE_CHOICES)
+    object_type = models.CharField(max_length=20, choices=DISCUSSION_TYPE_CHOICES, default=DISCUSSION_TYPE_DEFAULT)
     title = models.TextField()
     message = models.TextField()
 
@@ -159,7 +160,7 @@ class Discussion(OdnoklassnikiPKModel):
 
     @property
     def refresh_kwargs(self):
-        return {'id': self.pk, 'type': self.object_type or 'GROUP_TOPIC'}
+        return {'id': self.pk, 'type': self.object_type or DISCUSSION_TYPE_DEFAULT}
 
     @property
     def slug(self):
