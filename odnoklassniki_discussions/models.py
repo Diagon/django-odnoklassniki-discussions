@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
-from django.db import models
-from django.conf import settings
-from django.contrib.contenttypes.models import ContentType
-from django.contrib.contenttypes import generic
-from django.utils.translation import ugettext as _
-from django.core.exceptions import ImproperlyConfigured
-from odnoklassniki_api.models import OdnoklassnikiManager, OdnoklassnikiPKModel, OdnoklassnikiModel
-from odnoklassniki_api.fields import JSONField
-from odnoklassniki_groups.models import Group
-from odnoklassniki_users.models import User
-from odnoklassniki_api.decorators import fetch_all, atomic
-from m2m_history.fields import ManyToManyHistoryField
 import logging
 import re
+
+from django.conf import settings
+from django.contrib.contenttypes import generic
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ImproperlyConfigured
+from django.db import models
+from django.utils.translation import ugettext as _
+from m2m_history.fields import ManyToManyHistoryField
+from odnoklassniki_api.decorators import fetch_all, atomic
+from odnoklassniki_api.fields import JSONField
+from odnoklassniki_api.models import OdnoklassnikiPKModel, OdnoklassnikiModel, OdnoklassnikiTimelineManager
+from odnoklassniki_groups.models import Group
+from odnoklassniki_users.models import User
 
 log = logging.getLogger('odnoklassniki_discussions')
 
@@ -37,15 +38,8 @@ DISCUSSION_TYPE_CHOICES = [(type, type) for type in DISCUSSION_TYPES]
 COMMENT_TYPE_CHOICES = [(type, type) for type in COMMENT_TYPES]
 DISCUSSION_TYPE_DEFAULT = 'GROUP_TOPIC'
 
-class DiscussionRemoteManager(OdnoklassnikiManager):
 
-    def fetch(self, **kwargs):
-        if 'id' in kwargs and 'type' in kwargs:
-            return self.fetch_one(**kwargs)
-        elif 'group' in kwargs:
-            return self.fetch_for_group(**kwargs)
-        else:
-            raise Exception("Wrong atributes for Discussion.remote.fetch() method kwargs=%s" % kwargs)
+class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
 
     @atomic
     def fetch_one(self, id, type, **kwargs):
@@ -56,55 +50,71 @@ class DiscussionRemoteManager(OdnoklassnikiManager):
         kwargs['discussionType'] = type
         # with `fields` response doesn't contain `entities` field
         #kwargs['fields'] = self.get_request_fields('discussion')
-        return super(DiscussionRemoteManager, self).fetch(method='get_one', **kwargs)
 
-    def update_discussions_count(self, instances, group, *args, **kwargs):
-        group.discussions_count = len(instances)
-        group.save()
-        return instances
+        result = super(OdnoklassnikiTimelineManager, self).get(method='get_one', **kwargs)
+        return self.get_or_create_from_instance(result)
+
+    @fetch_all
+    def get(self, **kwargs):
+        return super(DiscussionRemoteManager, self).get(**kwargs), self.response
+
+    def parse_response(self, response, extra_fields=None):
+        if 'owner_id' in extra_fields:
+            # in case of fetch_group
+            # has_more not in dict and we need to handle pagination manualy
+            if 'feeds' not in response:
+                response.pop('anchor', None)
+                discussions = self.model.objects.none()
+            else:
+                response = [feed for feed in response['feeds'] if feed['pattern'] == 'POST']
+                discussions = super(DiscussionRemoteManager, self).parse_response(response, extra_fields)
+        else:
+            # in case of fetch_one
+            discussions = super(DiscussionRemoteManager, self).parse_response(response, extra_fields)
+
+        return discussions
+
+#     def update_discussions_count(self, instances, group, *args, **kwargs):
+#         group.discussions_count = len(instances)
+#         group.save()
+#         return instances
 
     @atomic
-    @fetch_all(return_all=update_discussions_count)
-    def fetch_for_group(self, group, count=100, **kwargs):
+#    @fetch_all(return_all=update_discussions_count)
+    def fetch_group(self, group, count=100, **kwargs):
         kwargs['gid'] = group.pk
         kwargs['count'] = int(count)
         kwargs['patterns'] = 'POST'
         kwargs['fields'] = self.get_request_fields('feed', 'media_topic', prefix=True)
+        kwargs['extra_fields'] = {
+            'owner_id': group.pk, 'owner_content_type_id': ContentType.objects.get_for_model(Group).pk}
 
-        response = super(DiscussionRemoteManager, self).api_call(method='stream', **kwargs)
-        # has_more not in dict and we need to handle pagination manualy
-        if 'feeds' not in response:
-            response.pop('anchor', None)
-            discussions = self.model.objects.none()
-        else:
-            feed = [feed for feed in response['feeds'] if feed['pattern'] == 'POST']
-            discussions = self.parse_response(feed, {'owner_id': group.pk, 'owner_content_type_id': ContentType.objects.get_for_model(Group).pk})
-            discussions = self.get_or_create_from_instances_list(discussions)
-
-        return discussions, response
+        discussions = super(DiscussionRemoteManager, self).fetch(method='stream', **kwargs)
+        return discussions
 
 
-class CommentRemoteManager(OdnoklassnikiManager):
+class CommentRemoteManager(OdnoklassnikiTimelineManager):
+
+    def parse_response(self, response, extra_fields=None):
+        return super(CommentRemoteManager, self).parse_response(response['comments'], extra_fields)
 
     @fetch_all
     def get(self, discussion, count=100, **kwargs):
         kwargs['discussionId'] = discussion.pk
         kwargs['discussionType'] = discussion.object_type
         kwargs['count'] = int(count)
+        kwargs['extra_fields'] = {'discussion_id': discussion.pk}
 
-        response = super(CommentRemoteManager, self).api_call(**kwargs)
-        comments = self.parse_response(response['comments'], {'discussion_id': discussion.pk})
+        comments = super(CommentRemoteManager, self).get(**kwargs)
 
-        return comments, response
+        return comments, self.response
 
     @atomic
     def fetch(self, discussion, **kwargs):
         '''
         Get all comments, reverse order and save them, because we need to store reply_to_comment relation
         '''
-        comments = self.get(discussion=discussion, **kwargs)
-        comments.reverse()
-        comments = self.get_or_create_from_instances_list(comments)
+        comments = super(CommentRemoteManager, self).fetch(discussion=discussion, **kwargs)
 
         discussion.comments_count = comments.count()
         discussion.save()
@@ -113,9 +123,6 @@ class CommentRemoteManager(OdnoklassnikiManager):
 
 
 class Discussion(OdnoklassnikiPKModel):
-    class Meta:
-        verbose_name = _('Odnoklassniki discussion')
-        verbose_name_plural = _('Odnoklassniki discussions')
 
     methods_namespace = ''
     remote_pk_field = 'object_id'
@@ -158,6 +165,52 @@ class Discussion(OdnoklassnikiPKModel):
 #     def __unicode__(self):
 #         return self.name
 
+    class Meta:
+        verbose_name = _('Odnoklassniki discussion')
+        verbose_name_plural = _('Odnoklassniki discussions')
+
+    def save(self, *args, **kwargs):
+
+        # make 2 dicts {id: instance} for group and users from entities
+        if self.entities:
+            entities = {
+                'users': [],
+                'groups': [],
+            }
+            for resource in self.entities.get('users', []):
+                entities['users'] += [User.remote.get_or_create_from_resource(resource)]
+            for resource in self.entities.get('groups', []):
+                entities['groups'] += [Group.remote.get_or_create_from_resource(resource)]
+            for field in ['users', 'groups']:
+                entities[field] = dict([(instance.id, instance) for instance in entities[field]])
+
+            # set owner
+            for resource in self.ref_objects:
+                id = int(resource['id'])
+                if resource['type'] == 'GROUP':
+                    self.owner = entities['groups'][id]
+                elif resource['type'] == 'USER':
+                    self.owner = entities['user'][id]
+                else:
+                    log.warning("Strange type of object in ref_objects %s for duscussion ID=%s" % (resource, self.id))
+
+            # set author
+            if self.author_id:
+                if self.author_id in entities['groups']:
+                    self.author = entities['groups'][self.author_id]
+                elif self.author_id in entities['users']:
+                    self.author = entities['users'][self.author_id]
+                else:
+                    log.warning("Imposible to find author with ID=%s in entities of duscussion ID=%s" %
+                                (self.author_id, self.id))
+                    self.author_id = None
+
+        if self.owner and not self.author_id:
+            # of no author_id (owner_uid), so it's equal to owner from ref_objects
+            self.author = self.owner
+
+        return super(Discussion, self).save(*args, **kwargs)
+
     @property
     def refresh_kwargs(self):
         return {'id': self.pk, 'type': self.object_type or DISCUSSION_TYPE_DEFAULT}
@@ -172,7 +225,7 @@ class Discussion(OdnoklassnikiPKModel):
 
         # in API owner is author
         if 'owner_uid' in response:
-             response['author_id'] = response.pop('owner_uid')
+            response['author_id'] = response.pop('owner_uid')
 
         # some name cleaning
         if 'like_count' in response:
@@ -193,47 +246,6 @@ class Discussion(OdnoklassnikiPKModel):
                 response['message'] = re.sub(regexp, '', response['message'])
 
         return super(Discussion, self).parse(response)
-
-    def save(self, *args, **kwargs):
-
-        # make 2 dicts {id: instance} for group and users from entities
-        if self.entities:
-            entities = {
-                'users': [],
-                'groups': [],
-            }
-            for resource in self.entities.get('users', []):
-                entities['users'] += [User.remote.get_or_create_from_resource(resource)]
-            for resource in self.entities.get('groups', []):
-                entities['groups'] += [Group.remote.get_or_create_from_resource(resource)]
-            for field in ['users','groups']:
-                entities[field] = dict([(instance.id, instance) for instance in entities[field]])
-
-            # set owner
-            for resource in self.ref_objects:
-                id = int(resource['id'])
-                if resource['type'] == 'GROUP':
-                    self.owner = entities['groups'][id]
-                elif resource['type'] == 'USER':
-                    self.owner = entities['user'][id]
-                else:
-                    log.warning("Strange type of object in ref_objects %s for duscussion ID=%s" % (resource, self.id))
-
-            # set author
-            if self.author_id:
-                if self.author_id in entities['groups']:
-                    self.author = entities['groups'][self.author_id]
-                elif self.author_id in entities['users']:
-                    self.author = entities['users'][self.author_id]
-                else:
-                    log.warning("Imposible to find author with ID=%s in entities of duscussion ID=%s" % (self.author_id, self.id))
-                    self.author_id = None
-
-        if self.owner and not self.author_id:
-            # of no author_id (owner_uid), so it's equal to owner from ref_objects
-            self.author = self.owner
-
-        return super(Discussion, self).save(*args, **kwargs)
 
     def fetch_comments(self, **kwargs):
         return Comment.remote.fetch(discussion=self, **kwargs)
@@ -259,15 +271,13 @@ class Discussion(OdnoklassnikiPKModel):
             response.pop('anchor', None)
             users_ids = []
         else:
-            users_ids = list(User.remote.get_or_create_from_resources_list(response['users']).values_list('pk', flat=True))
+            users_ids = list(User.remote.get_or_create_from_resources_list(
+                response['users']).values_list('pk', flat=True))
 
         return users_ids, response
 
 
 class Comment(OdnoklassnikiModel):
-    class Meta:
-        verbose_name = _('Odnoklassniki comment')
-        verbose_name_plural = _('Odnoklassniki comments')
 
     methods_namespace = 'discussions'
 
@@ -289,7 +299,8 @@ class Comment(OdnoklassnikiModel):
 
     reply_to_comment = models.ForeignKey('self', null=True, verbose_name=u'Это ответ на комментарий')
 
-    reply_to_author_content_type = models.ForeignKey(ContentType, null=True, related_name='odnoklassniki_comments_reply_to_authors')
+    reply_to_author_content_type = models.ForeignKey(
+        ContentType, null=True, related_name='odnoklassniki_comments_reply_to_authors')
     reply_to_author_id = models.BigIntegerField(db_index=True, null=True)
     reply_to_author = generic.GenericForeignKey('reply_to_author_content_type', 'reply_to_author_id')
 
@@ -311,24 +322,9 @@ class Comment(OdnoklassnikiModel):
         'get_likes': 'getCommentLikes',
     })
 
-    def parse(self, response):
-        # rename becouse discussion has object_type
-        if 'type' in response:
-            response['object_type'] = response.pop('type')
-
-        if 'like_count' in response:
-            response['likes_count'] = response.pop('like_count')
-        if 'reply_to_id' in response:
-            response['reply_to_author_id'] = response.pop('reply_to_id')
-        if 'reply_to_comment_id' in response:
-            response['reply_to_comment'] = response.pop('reply_to_comment_id')
-
-        # if author is a group
-        if 'author_type' in response:
-            response.pop('author_name')
-            self.author_type = response.pop('author_type')
-
-        return super(Comment, self).parse(response)
+    class Meta:
+        verbose_name = _('Odnoklassniki comment')
+        verbose_name_plural = _('Odnoklassniki comments')
 
     def save(self, *args, **kwargs):
         self.owner = self.discussion.owner
@@ -347,7 +343,7 @@ class Comment(OdnoklassnikiModel):
 
         # it's hard to get proper reply_to_author_content_type in case we fetch comments from last
         if self.reply_to_author_id and not self.reply_to_author_content_type:
-             self.reply_to_author_content_type = ContentType.objects.get_for_model(User)
+            self.reply_to_author_content_type = ContentType.objects.get_for_model(User)
 #         if self.reply_to_comment_id and self.reply_to_author_id and not self.reply_to_author_content_type:
 #             try:
 #                 self.reply_to_author = User.objects.get(pk=self.reply_to_author_id)
@@ -359,10 +355,30 @@ class Comment(OdnoklassnikiModel):
             try:
                 self.reply_to_comment = Comment.objects.get(pk=self.reply_to_comment_id)
             except Comment.DoesNotExist:
-                log.error("Try to save comment ID=%s with reply_to_comment_id=%s that doesn't exist in DB" % (self.pk, self.reply_to_comment_id))
+                log.error("Try to save comment ID=%s with reply_to_comment_id=%s that doesn't exist in DB" %
+                          (self.pk, self.reply_to_comment_id))
                 self.reply_to_comment = None
 
         return super(Comment, self).save(*args, **kwargs)
+
+    def parse(self, response):
+        # rename becouse discussion has object_type
+        if 'type' in response:
+            response['object_type'] = response.pop('type')
+
+        if 'like_count' in response:
+            response['likes_count'] = response.pop('like_count')
+        if 'reply_to_id' in response:
+            response['reply_to_author_id'] = response.pop('reply_to_id')
+        if 'reply_to_comment_id' in response:
+            response['reply_to_comment'] = response.pop('reply_to_comment_id')
+
+        # if author is a group
+        if 'author_type' in response:
+            response.pop('author_name')
+            self.author_type = response.pop('author_type')
+
+        return super(Comment, self).parse(response)
 
     def update_likes_count(self, instances, *args, **kwargs):
         users = User.objects.filter(pk__in=instances)
@@ -386,6 +402,7 @@ class Comment(OdnoklassnikiModel):
             response.pop('anchor', None)
             users_ids = []
         else:
-            users_ids = list(User.remote.get_or_create_from_resources_list(response['users']).values_list('pk', flat=True))
+            users_ids = list(User.remote.get_or_create_from_resources_list(
+                response['users']).values_list('pk', flat=True))
 
         return users_ids, response

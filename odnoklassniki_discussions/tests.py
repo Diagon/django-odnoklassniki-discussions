@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
-from django.test import TestCase
+from datetime import datetime
+
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-from models import Discussion, User, Group, Comment
-from factories import GroupFactory, UserFactory, CommentFactory, DiscussionFactory
+from django.test import TestCase
+from django.utils import timezone
 import simplejson as json
-from datetime import datetime
+
+from .factories import GroupFactory, UserFactory, CommentFactory, DiscussionFactory
+from .models import Discussion, User, Group, Comment
 
 # GROUP_ID = 47241470410797
 # GROUP_NAME = u'Кока-Кола'
 #
 # GROUP_OPEN_ID = 53038939046008
-
 GROUP1_ID = 47241470410797
 GROUP_DISCUSSION1_ID = 62190641299501
 
@@ -32,6 +34,7 @@ GROUP4_DISCUSSION_WITH_GROUP_COMMENTS_ID = 62520921350357
 
 GROUP_DISCUSSION_GHOST = 62671523553304
 
+
 class OdnoklassnikiDiscussionsTest(TestCase):
 
     def test_fetch_group_discussions(self):
@@ -40,11 +43,30 @@ class OdnoklassnikiDiscussionsTest(TestCase):
 
         self.assertEqual(Discussion.objects.count(), 0)
 
-        discussions = Discussion.remote.fetch(group=group, all=True)
+        discussions = Discussion.remote.fetch_group(group=group)
 
-        self.assertTrue(discussions.count() > 94)
+        self.assertEqual(discussions.count(), 20)
         self.assertEqual(discussions.count(), Discussion.objects.count())
         self.assertEqual(discussions.count(), group.discussions.count())
+
+        # test `all` argument
+        discussions = Discussion.remote.fetch_group(group=group, all=True)
+
+        self.assertGreater(discussions.count(), 200)
+        self.assertEqual(discussions.count(), Discussion.objects.count())
+        self.assertEqual(discussions.count(), group.discussions.count())
+
+        # test `after` argument
+        after = datetime(2014, 5, 1, tzinfo=timezone.utc)
+        discussions_after = Discussion.remote.fetch_group(group=group, all=True, after=after)
+        self.assertLess(discussions_after.count(), 200)
+        self.assertEqual(discussions_after.filter(date__lt=after).count(), 0)
+
+        # test `before` argument
+        before = discussions_after[50].date
+        discussions_before = Discussion.remote.fetch_group(group=group, all=True, after=after, before=before)
+        self.assertLess(discussions_before.count(), discussions_after.count())
+        self.assertEqual(discussions_before.filter(date__lt=after).filter(date__gt=before).count(), 0)
 
     def test_fetch_discussion_likes(self):
 
@@ -53,7 +75,7 @@ class OdnoklassnikiDiscussionsTest(TestCase):
 
         users = discussion.fetch_likes(all=True)
 
-        self.assertTrue(discussion.likes_count > 2500)
+        self.assertGreater(discussion.likes_count, 2500)
         self.assertEqual(discussion.likes_count, users.count())
         self.assertEqual(discussion.likes_count, User.objects.count() - users_initial)
         self.assertEqual(discussion.likes_count, discussion.like_users.count())
@@ -61,12 +83,13 @@ class OdnoklassnikiDiscussionsTest(TestCase):
     def test_fetch_comment_likes(self):
 
         discussion = DiscussionFactory(id=GROUP_COMMENT_WITH_MANY_LIKES1_DISCUSSION_ID, object_type='GROUP_TOPIC')
-        comment = CommentFactory(id=GROUP_COMMENT_WITH_MANY_LIKES1_ID, object_type='GROUP_TOPIC', discussion=discussion)
+        comment = CommentFactory(
+            id=GROUP_COMMENT_WITH_MANY_LIKES1_ID, object_type='GROUP_TOPIC', discussion=discussion)
         users_initial = User.objects.count()
 
         users = comment.fetch_likes(all=True)
 
-        self.assertTrue(comment.likes_count > 19)
+        self.assertGreater(comment.likes_count, 19)
         self.assertEqual(comment.likes_count, users.count())
         self.assertEqual(comment.likes_count, User.objects.count() - users_initial)
         self.assertEqual(comment.likes_count, comment.like_users.count())
@@ -77,13 +100,35 @@ class OdnoklassnikiDiscussionsTest(TestCase):
 
         self.assertEqual(Comment.objects.count(), 0)
 
+        comments = discussion.fetch_comments()
+
+        self.assertEqual(comments.count(), 100)
+        self.assertEqual(comments.count(), discussion.comments_count)
+        self.assertEqual(comments.count(), Comment.objects.count())
+        self.assertEqual(comments.count(), discussion.comments.count())
+
+        # test `after` argument
+        after = datetime(2014, 5, 1, 8, 34, 8, tzinfo=timezone.utc)
+        comments_after = discussion.fetch_comments(all=True, after=after)
+        self.assertGreater(comments_after.count(), 200)
+        self.assertEqual(comments_after.filter(date__lt=after).count(), 0)
+
+        # test `before` argument
+        before = comments_after[100].date
+        comments_before = discussion.fetch_comments(all=True, after=after, before=before)
+        self.assertLess(comments_before.count(), comments_after.count())
+        self.assertEqual(comments_before.filter(date__lt=after).filter(date__gt=before).count(), 0)
+
+        # test big ammount of comments
+        Comment.objects.all().delete()
         comments = discussion.fetch_comments(all=True)
 
-        self.assertTrue(discussion.comments_count > 2900)
-        self.assertEqual(discussion.comments_count, comments.count())
-        self.assertEqual(discussion.comments_count, Comment.objects.count())
-        self.assertEqual(discussion.comments_count, discussion.comments.count())
+        self.assertGreater(comments.count(), 3600)
+        self.assertEqual(comments.count(), discussion.comments_count)
+        self.assertEqual(comments.count(), Comment.objects.count())
+        self.assertEqual(comments.count(), discussion.comments.count())
 
+        # test not complete result of comments
         Comment.objects.all().delete()
         discussion = DiscussionFactory(id=GROUP_DISCUSSION_WITH_MANY_COMMENTS2_ID, object_type='GROUP_TOPIC')
 
@@ -91,15 +136,13 @@ class OdnoklassnikiDiscussionsTest(TestCase):
 
         comments = discussion.fetch_comments(all=True)
 
-        self.assertTrue(discussion.comments_count > 1900) # now only 1188, but on the site more than 1900
-        self.assertEqual(discussion.comments_count, comments.count())
-        self.assertEqual(discussion.comments_count, Comment.objects.count())
-        self.assertEqual(discussion.comments_count, discussion.comments.count())
+        self.assertGreater(comments.count(), 1900)  # now only 1243, but on the site more than 1900
 
     def test_fetch_discussion_comments_by_group(self):
 
         group = GroupFactory(id=GROUP4_ID)
-        discussion = DiscussionFactory(owner=group, id=GROUP4_DISCUSSION_WITH_GROUP_COMMENTS_ID, object_type='GROUP_TOPIC')
+        discussion = DiscussionFactory(
+            owner=group, id=GROUP4_DISCUSSION_WITH_GROUP_COMMENTS_ID, object_type='GROUP_TOPIC')
 
         self.assertEqual(Comment.objects.count(), 0)
 
@@ -114,25 +157,25 @@ class OdnoklassnikiDiscussionsTest(TestCase):
 
         self.assertEqual(Discussion.objects.count(), 0)
 
-        instance = Discussion.remote.fetch(id=GROUP_DISCUSSION1_ID, type='GROUP_TOPIC')
+        instance = Discussion.remote.fetch_one(id=GROUP_DISCUSSION1_ID, type='GROUP_TOPIC')
 
         self.assertEqual(Discussion.objects.count(), 1)
         self.assertEqual(instance.id, GROUP_DISCUSSION1_ID)
         self.assertEqual(instance.author, User.objects.get(pk=163873406852))
         self.assertEqual(instance.owner, Group.objects.get(pk=GROUP1_ID))
-        self.assertTrue(isinstance(instance.entities, dict))
+        self.assertIsInstance(instance.entities, dict)
 
-        instance = Discussion.remote.fetch(id=GROUP_DISCUSSION2_ID, type='GROUP_TOPIC')
+        instance = Discussion.remote.fetch_one(id=GROUP_DISCUSSION2_ID, type='GROUP_TOPIC')
 
         self.assertEqual(Discussion.objects.count(), 2)
         self.assertEqual(instance.id, GROUP_DISCUSSION2_ID)
         self.assertEqual(instance.author, instance.owner)
         self.assertEqual(instance.owner, Group.objects.get(pk=GROUP2_ID))
-        self.assertTrue(isinstance(instance.entities, dict))
+        self.assertIsInstance(instance.entities, dict)
 
     def test_refresh_discussion(self):
 
-        instance = Discussion.remote.fetch(id=GROUP_DISCUSSION1_ID, type='GROUP_TOPIC')
+        instance = Discussion.remote.fetch_one(id=GROUP_DISCUSSION1_ID, type='GROUP_TOPIC')
         self.assertNotEqual(instance.message, 'temp')
 
         message = instance.message
@@ -188,18 +231,19 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         self.assertEqual(instance.id, 62190641299501)
         self.assertEqual(instance.object_type, 'GROUP_TOPIC')
         self.assertEqual(instance.message, u"Topic in the {group:47241470410797}Кока-Кола{group} group")
-        self.assertEqual(instance.title, u"Кока-Кола  один из спонсоров  Олимпиады в Сочи.  Хотелось бы  видеть фото- и видео-  репортажи с Эстафеты  олимпийского огня !")
+        self.assertEqual(
+            instance.title, u"Кока-Кола  один из спонсоров  Олимпиады в Сочи.  Хотелось бы  видеть фото- и видео-  репортажи с Эстафеты  олимпийского огня !")
         self.assertEqual(instance.new_comments_count, 0)
         self.assertEqual(instance.comments_count, 137)
         self.assertEqual(instance.likes_count, 1)
         self.assertEqual(instance.liked_it, False)
         self.assertEqual(instance.author, User.objects.get(pk=163873406852))
         self.assertEqual(instance.owner, Group.objects.get(pk=47241470410797))
-        self.assertTrue(isinstance(instance.last_activity_date, datetime))
-        self.assertTrue(isinstance(instance.last_user_access_date, datetime))
-        self.assertTrue(isinstance(instance.date, datetime))
-        self.assertTrue(isinstance(instance.entities, dict))
-        self.assertTrue(isinstance(instance.attrs, dict))
+        self.assertIsInstance(instance.last_activity_date, datetime)
+        self.assertIsInstance(instance.last_user_access_date, datetime)
+        self.assertIsInstance(instance.date, datetime)
+        self.assertIsInstance(instance.entities, dict)
+        self.assertIsInstance(instance.attrs, dict)
 
     def test_parse_comment(self):
 
@@ -228,5 +272,5 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         self.assertEqual(instance.author, User.objects.get(pk=538901295641))
         self.assertEqual(instance.reply_to_comment, comment)
         self.assertEqual(instance.reply_to_author, User.objects.get(pk=134519031824))
-        self.assertTrue(isinstance(instance.date, datetime))
-        self.assertTrue(isinstance(instance.attrs, dict))
+        self.assertIsInstance(instance.date, datetime)
+        self.assertIsInstance(instance.attrs, dict)
