@@ -45,7 +45,7 @@ class OdnoklassnikiDiscussionsTest(TestCase):
 
         discussions = Discussion.remote.fetch_group(group=group)
 
-        self.assertEqual(discussions.count(), 20)
+        self.assertEqual(discussions.count(), 21)
         self.assertEqual(discussions.count(), Discussion.objects.count())
         self.assertEqual(discussions.count(), group.discussions.count())
 
