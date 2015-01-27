@@ -326,6 +326,10 @@ class Comment(OdnoklassnikiModel):
         verbose_name = _('Odnoklassniki comment')
         verbose_name_plural = _('Odnoklassniki comments')
 
+    @property
+    def slug(self):
+        return self.discussion.slug
+
     def save(self, *args, **kwargs):
         self.owner = self.discussion.owner
 
