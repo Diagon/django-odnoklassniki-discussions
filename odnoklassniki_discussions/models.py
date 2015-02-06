@@ -9,10 +9,10 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 from django.utils.translation import ugettext as _
 from m2m_history.fields import ManyToManyHistoryField
-from odnoklassniki_api.decorators import fetch_all, atomic
+from odnoklassniki_api.decorators import atomic, fetch_all
 from odnoklassniki_api.fields import JSONField
-from odnoklassniki_api.models import OdnoklassnikiPKModel, OdnoklassnikiModel, OdnoklassnikiTimelineManager
-from odnoklassniki_groups.models import Group
+from odnoklassniki_api.models import (OdnoklassnikiModel, OdnoklassnikiPKModel,
+                                      OdnoklassnikiTimelineManager)
 from odnoklassniki_users.models import User
 
 log = logging.getLogger('odnoklassniki_discussions')
@@ -80,8 +80,10 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
 #         return instances
 
     @atomic
-#    @fetch_all(return_all=update_discussions_count)
+    @fetch_all
     def fetch_group(self, group, count=100, **kwargs):
+        from odnoklassniki_groups.models import Group
+
         kwargs['gid'] = group.pk
         kwargs['count'] = int(count)
         kwargs['patterns'] = 'POST'
@@ -180,6 +182,7 @@ class Discussion(OdnoklassnikiPKModel):
             for resource in self.entities.get('users', []):
                 entities['users'] += [User.remote.get_or_create_from_resource(resource)]
             for resource in self.entities.get('groups', []):
+                from odnoklassniki_groups.models import Group
                 entities['groups'] += [Group.remote.get_or_create_from_resource(resource)]
             for field in ['users', 'groups']:
                 entities[field] = dict([(instance.id, instance) for instance in entities[field]])
@@ -338,6 +341,7 @@ class Comment(OdnoklassnikiModel):
                 if self.author_id == self.owner_id:
                     self.author = self.owner
                 else:
+                    from odnoklassniki_groups.models import Group
                     self.author = Group.remote.fetch(ids=[self.author_id])[0]
             else:
                 try:

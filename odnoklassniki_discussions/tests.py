@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime
 
+import simplejson as json
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase
 from django.utils import timezone
-import simplejson as json
+from odnoklassniki_groups.models import Group
 
-from .factories import GroupFactory, UserFactory, CommentFactory, DiscussionFactory
-from .models import Discussion, User, Group, Comment
+from .factories import (CommentFactory, DiscussionFactory, GroupFactory,
+                        UserFactory)
+from .models import Comment, Discussion, User
 
 # GROUP_ID = 47241470410797
 # GROUP_NAME = u'Кока-Кола'
