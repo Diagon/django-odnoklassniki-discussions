@@ -92,7 +92,7 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
             'owner_id': group.pk, 'owner_content_type_id': ContentType.objects.get_for_model(Group).pk}
 
         discussions = super(DiscussionRemoteManager, self).fetch(method='stream', **kwargs)
-        return discussions
+        return discussions, self.response
 
 
 class CommentRemoteManager(OdnoklassnikiTimelineManager):
