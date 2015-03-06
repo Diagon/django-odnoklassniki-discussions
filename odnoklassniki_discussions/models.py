@@ -102,10 +102,10 @@ class CommentRemoteManager(OdnoklassnikiTimelineManager):
 
     @fetch_all
     def get(self, discussion, count=100, **kwargs):
-        kwargs['discussionId'] = discussion.pk
+        kwargs['discussionId'] = discussion.id
         kwargs['discussionType'] = discussion.object_type
         kwargs['count'] = int(count)
-        kwargs['extra_fields'] = {'discussion_id': discussion.pk}
+        kwargs['extra_fields'] = {'discussion_id': discussion.id}
 
         comments = super(CommentRemoteManager, self).get(**kwargs)
 
@@ -216,7 +216,7 @@ class Discussion(OdnoklassnikiPKModel):
 
     @property
     def refresh_kwargs(self):
-        return {'id': self.pk, 'type': self.object_type or DISCUSSION_TYPE_DEFAULT}
+        return {'id': self.id, 'type': self.object_type or DISCUSSION_TYPE_DEFAULT}
 
     @property
     def slug(self):
@@ -263,7 +263,7 @@ class Discussion(OdnoklassnikiPKModel):
     @atomic
     @fetch_all(return_all=update_likes_count)
     def fetch_likes(self, count=100, **kwargs):
-        kwargs['discussionId'] = self.pk
+        kwargs['discussionId'] = self.id
         kwargs['discussionType'] = self.object_type
         kwargs['count'] = int(count)
 #        kwargs['fields'] = Discussion.remote.get_request_fields('user')
@@ -364,7 +364,7 @@ class Comment(OdnoklassnikiModel):
                 self.reply_to_comment = Comment.objects.get(pk=self.reply_to_comment_id)
             except Comment.DoesNotExist:
                 log.error("Try to save comment ID=%s with reply_to_comment_id=%s that doesn't exist in DB" %
-                          (self.pk, self.reply_to_comment_id))
+                          (self.id, self.reply_to_comment_id))
                 self.reply_to_comment = None
 
         return super(Comment, self).save(*args, **kwargs)
@@ -398,8 +398,8 @@ class Comment(OdnoklassnikiModel):
     @atomic
     @fetch_all(return_all=update_likes_count)
     def fetch_likes(self, count=100, **kwargs):
-        kwargs['comment_id'] = self.pk
-        kwargs['discussionId'] = self.discussion.pk
+        kwargs['comment_id'] = self.id
+        kwargs['discussionId'] = self.discussion.id
         kwargs['discussionType'] = self.discussion.object_type
         kwargs['count'] = int(count)
 #        kwargs['fields'] = Comment.remote.get_request_fields('user')
