@@ -342,12 +342,18 @@ class Comment(OdnoklassnikiModel):
                     self.author = self.owner
                 else:
                     from odnoklassniki_groups.models import Group
-                    self.author = Group.remote.fetch(ids=[self.author_id])[0]
+                    try:
+                        self.author = Group.remote.fetch(ids=[self.author_id])[0]
+                    except IndexError:
+                        raise Exception("Can't fetch Odnoklassniki comment's group-author with ID %s" % self.author_id)
             else:
                 try:
                     self.author = User.objects.get(pk=self.author_id)
                 except User.DoesNotExist:
-                    self.author = User.remote.fetch(ids=[self.author_id])[0]
+                    try:
+                        self.author = User.remote.fetch(ids=[self.author_id])[0]
+                    except IndexError:
+                        raise Exception("Can't fetch Odnoklassniki comment's user-author with ID %s" % self.author_id)
 
         # it's hard to get proper reply_to_author_content_type in case we fetch comments from last
         if self.reply_to_author_id and not self.reply_to_author_content_type:
