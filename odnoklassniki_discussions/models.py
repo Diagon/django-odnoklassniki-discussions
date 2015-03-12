@@ -335,27 +335,24 @@ class Comment(OdnoklassnikiModel):
     def save(self, *args, **kwargs):
         self.owner = self.discussion.owner
 
-        if self.author_id:
-            try:
-                self.author
-            except ObjectDoesNotExist:
-                if self.author_type == 'GROUP':
-                    if self.author_id == self.owner_id:
-                        self.author = self.owner
-                    else:
-                        from odnoklassniki_groups.models import Group
-                        try:
-                            self.author = Group.remote.fetch(ids=[self.author_id])[0]
-                        except IndexError:
-                            raise Exception("Can't fetch Odnoklassniki comment's group-author with ID %s" % self.author_id)
+        if self.author_id and not self.author:
+            if self.author_type == 'GROUP':
+                if self.author_id == self.owner_id:
+                    self.author = self.owner
                 else:
+                    from odnoklassniki_groups.models import Group
                     try:
-                        self.author = User.objects.get(pk=self.author_id)
-                    except User.DoesNotExist:
-                        try:
-                            self.author = User.remote.fetch(ids=[self.author_id])[0]
-                        except IndexError:
-                            raise Exception("Can't fetch Odnoklassniki comment's user-author with ID %s" % self.author_id)
+                        self.author = Group.remote.fetch(ids=[self.author_id])[0]
+                    except IndexError:
+                        raise Exception("Can't fetch Odnoklassniki comment's group-author with ID %s" % self.author_id)
+            else:
+                try:
+                    self.author = User.objects.get(pk=self.author_id)
+                except User.DoesNotExist:
+                    try:
+                        self.author = User.remote.fetch(ids=[self.author_id])[0]
+                    except IndexError:
+                        raise Exception("Can't fetch Odnoklassniki comment's user-author with ID %s" % self.author_id)
 
         # it's hard to get proper reply_to_author_content_type in case we fetch comments from last
         if self.reply_to_author_id and not self.reply_to_author_content_type:

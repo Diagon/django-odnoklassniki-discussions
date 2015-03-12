@@ -96,6 +96,14 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         self.assertEqual(comment.likes_count, User.objects.count() - users_initial)
         self.assertEqual(comment.likes_count, comment.like_users.count())
 
+    def test_save_comment_during_fetching_likes(self):
+
+        discussion = DiscussionFactory(id=GROUP_COMMENT_WITH_MANY_LIKES1_DISCUSSION_ID, object_type='GROUP_TOPIC')
+        comment = CommentFactory(object_type='GROUP_TOPIC', discussion=discussion)
+        comment.author_id = 47241470410797
+        comment.author_type = ''
+        comment.save()
+
     def test_fetch_discussion_comments(self):
 
         discussion = DiscussionFactory(id=GROUP_DISCUSSION_WITH_MANY_COMMENTS1_ID, object_type='GROUP_TOPIC')
