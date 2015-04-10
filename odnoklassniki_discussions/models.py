@@ -79,7 +79,7 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
 #         return instances
 
     @atomic
-    @fetch_all
+    @fetch_all(has_more=None)
     def fetch_group(self, group, count=100, **kwargs):
         from odnoklassniki_groups.models import Group
 
@@ -99,7 +99,7 @@ class CommentRemoteManager(OdnoklassnikiTimelineManager):
     def parse_response(self, response, extra_fields=None):
         return super(CommentRemoteManager, self).parse_response(response['comments'], extra_fields)
 
-    @fetch_all
+    @fetch_all(has_more='has_more')
     def get(self, discussion, count=100, **kwargs):
         kwargs['discussionId'] = discussion.id
         kwargs['discussionType'] = discussion.object_type
@@ -260,7 +260,7 @@ class Discussion(OdnoklassnikiPKModel):
         return users
 
     @atomic
-    @fetch_all(return_all=update_likes_count)
+    @fetch_all(return_all=update_likes_count, has_more=None)
     def fetch_likes(self, count=100, **kwargs):
         kwargs['discussionId'] = self.id
         kwargs['discussionType'] = self.object_type
@@ -401,7 +401,7 @@ class Comment(OdnoklassnikiModel):
         return users
 
     @atomic
-    @fetch_all(return_all=update_likes_count)
+    @fetch_all(return_all=update_likes_count, has_more=None)
     def fetch_likes(self, count=100, **kwargs):
         kwargs['comment_id'] = self.id
         kwargs['discussionId'] = self.discussion.id
