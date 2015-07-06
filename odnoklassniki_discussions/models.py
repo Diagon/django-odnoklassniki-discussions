@@ -97,7 +97,7 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
 class CommentRemoteManager(OdnoklassnikiTimelineManager):
 
     def parse_response(self, response, extra_fields=None):
-        return super(CommentRemoteManager, self).parse_response(response['comments'], extra_fields)
+        return super(CommentRemoteManager, self).parse_response(response.get('comments', []), extra_fields)
 
     @fetch_all(has_more='has_more')
     def get(self, discussion, count=100, **kwargs):
