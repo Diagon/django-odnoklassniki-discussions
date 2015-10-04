@@ -48,7 +48,7 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
         kwargs['discussionId'] = id
         kwargs['discussionType'] = type
         # with `fields` response doesn't contain `entities` field
-        #kwargs['fields'] = self.get_request_fields('discussion')
+        kwargs['fields'] = self.get_request_fields('discussions', 'media_topic', 'group', 'user', prefix=True)
 
         result = super(OdnoklassnikiTimelineManager, self).get(method='get_one', **kwargs)
         return self.get_or_create_from_instance(result)
@@ -58,20 +58,22 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
         return super(DiscussionRemoteManager, self).get(**kwargs), self.response
 
     def parse_response(self, response, extra_fields=None):
-        if 'owner_id' in extra_fields:
+        if 'media_topics' in response:
+            response = response['media_topics']
+        elif 'owner_id' in extra_fields:
             # in case of fetch_group
+            # TODO: change condition based on response
             # has_more not in dict and we need to handle pagination manualy
             if 'feeds' not in response:
                 response.pop('anchor', None)
-                discussions = self.model.objects.none()
+                return self.model.objects.none()
             else:
                 response = [feed for feed in response['feeds'] if feed['pattern'] == 'POST']
-                discussions = super(DiscussionRemoteManager, self).parse_response(response, extra_fields)
         else:
             # in case of fetch_one
-            discussions = super(DiscussionRemoteManager, self).parse_response(response, extra_fields)
+            pass
 
-        return discussions
+        return super(DiscussionRemoteManager, self).parse_response(response, extra_fields)
 
 #     def update_discussions_count(self, instances, group, *args, **kwargs):
 #         group.discussions_count = len(instances)
@@ -92,6 +94,15 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
 
         discussions = super(DiscussionRemoteManager, self).fetch(method='stream', **kwargs)
         return discussions, self.response
+
+    @atomic
+    def fetch_mediatopics(self, ids, **kwargs):
+
+        kwargs['topic_ids'] = ','.join(map(str, ids))
+        kwargs['media_limit'] = 3
+        kwargs['fields'] = self.get_request_fields('media_topic', prefix=True)
+
+        return super(DiscussionRemoteManager, self).fetch(method='mget', **kwargs)
 
 
 class CommentRemoteManager(OdnoklassnikiTimelineManager):
@@ -147,6 +158,7 @@ class Discussion(OdnoklassnikiPKModel):
     new_comments_count = models.PositiveIntegerField(default=0)
     comments_count = models.PositiveIntegerField(default=0)
     likes_count = models.PositiveIntegerField(default=0)
+    reshares_count = models.PositiveIntegerField(default=0)
 
     liked_it = models.BooleanField()
 
@@ -161,6 +173,7 @@ class Discussion(OdnoklassnikiPKModel):
         'get_one': 'discussions.get',
         'get_likes': 'discussions.getDiscussionLikes',
         'stream': 'stream.get',
+        'mget': 'mediatopic.getByIds',
     })
 
 #     def __unicode__(self):
@@ -187,14 +200,15 @@ class Discussion(OdnoklassnikiPKModel):
                 entities[field] = dict([(instance.id, instance) for instance in entities[field]])
 
             # set owner
-            for resource in self.ref_objects:
-                id = int(resource['id'])
-                if resource['type'] == 'GROUP':
-                    self.owner = entities['groups'][id]
-                elif resource['type'] == 'USER':
-                    self.owner = entities['user'][id]
-                else:
-                    log.warning("Strange type of object in ref_objects %s for duscussion ID=%s" % (resource, self.id))
+            if self.ref_objects:
+                for resource in self.ref_objects:
+                    id = int(resource['id'])
+                    if resource['type'] == 'GROUP':
+                        self.owner = entities['groups'][id]
+                    elif resource['type'] == 'USER':
+                        self.owner = entities['user'][id]
+                    else:
+                        log.warning("Strange type of object in ref_objects %s for duscussion ID=%s" % (resource, self.id))
 
             # set author
             if self.author_id:
@@ -211,6 +225,12 @@ class Discussion(OdnoklassnikiPKModel):
             # of no author_id (owner_uid), so it's equal to owner from ref_objects
             self.author = self.owner
 
+        if self.author_id and not self.author:
+            self.author = self.author_content_type.model_class().objects.get_or_create(pk=self.author_id)[0]
+
+        if self.owner_id and not self.owner:
+            self.owner = self.owner_content_type.model_class().objects.get_or_create(pk=self.owner_id)[0]
+
         return super(Discussion, self).save(*args, **kwargs)
 
     @property
@@ -222,8 +242,37 @@ class Discussion(OdnoklassnikiPKModel):
         return '%s/topic/%s' % (self.owner.slug, self.id)
 
     def parse(self, response):
+        from odnoklassniki_groups.models import Group
         if 'discussion' in response:
             response.update(response.pop('discussion'))
+
+        # Discussion.remote.fetch_one
+        if 'entities' in response and 'media_topics' in response['entities'] \
+            and len(response['entities']['media_topics']) == 1:
+                response.update(response['entities'].pop('media_topics')[0])
+
+        # media_topics
+        if 'like_summary' in response:
+            response['likes_count'] = response['like_summary']['count']
+            response.pop('like_summary')
+        if 'reshare_summary' in response:
+            response['reshares_count'] = response['reshare_summary']['count']
+            response.pop('reshare_summary')
+        if 'discussion_summary' in response:
+            response['comments_count'] = response['discussion_summary']['comments_count']
+            response.pop('discussion_summary')
+        if 'author_ref' in response:
+            i = response.pop('author_ref').split(':')
+            response['author_id'] = i[1]
+            self.author_content_type = ContentType.objects.get(app_label='odnoklassniki_%ss' % i[0], model=i[0])
+        if 'owner_ref' in response:
+            i = response.pop('owner_ref').split(':')
+            response['owner_id'] = i[1]
+            self.owner_content_type = ContentType.objects.get(app_label='odnoklassniki_%ss' % i[0], model=i[0])
+        if 'created_ms' in response:
+            response['date'] = response.pop('created_ms') / 1000
+        if 'media' in response:
+            response['title'] = response['media'][0]['text']
 
         # in API owner is author
         if 'owner_uid' in response:
@@ -240,7 +289,7 @@ class Discussion(OdnoklassnikiPKModel):
             response['date'] = response.pop('creation_date')
 
         # response of stream.get has another format
-        if '{media_topic' in response['message']:
+        if 'message' in response and '{media_topic' in response['message']:
             regexp = r'{media_topic:?(\d+)?}'
             m = re.findall(regexp, response['message'])
             if len(m):

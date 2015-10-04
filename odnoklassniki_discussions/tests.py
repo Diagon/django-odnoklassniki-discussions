@@ -2,14 +2,12 @@
 from datetime import datetime
 
 import simplejson as json
-from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase
 from django.utils import timezone
 from odnoklassniki_groups.models import Group
+from odnoklassniki_api.models import OdnoklassnikiContentError
 
-from .factories import (CommentFactory, DiscussionFactory, GroupFactory,
-                        UserFactory)
+from .factories import CommentFactory, DiscussionFactory, GroupFactory, UserFactory
 from .models import Comment, Discussion, User
 
 # GROUP_ID = 47241470410797
@@ -47,7 +45,7 @@ class OdnoklassnikiDiscussionsTest(TestCase):
 
         discussions = Discussion.remote.fetch_group(group=group)
 
-        self.assertEqual(discussions.count(), 11)  # sometimes 21
+        self.assertEqual(discussions.count(), 11)  # sometimes 21 or 19
         self.assertEqual(discussions.count(), Discussion.objects.count())
         self.assertEqual(discussions.count(), group.discussions.count())
 
@@ -134,7 +132,7 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         discussion = DiscussionFactory(id=GROUP_DISCUSSION_WITH_MANY_COMMENTS1_ID, object_type='GROUP_TOPIC')
         comments = discussion.fetch_comments(all=True)
 
-        self.assertGreater(comments.count(), 3600)
+        self.assertGreater(comments.count(), 3500)
         self.assertEqual(comments.count(), discussion.comments_count)
         self.assertEqual(comments.count(), Comment.objects.count())
         self.assertEqual(comments.count(), discussion.comments.count())
@@ -173,6 +171,8 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         self.assertEqual(instance.author, User.objects.get(pk=163873406852))
         self.assertEqual(instance.owner, Group.objects.get(pk=GROUP1_ID))
         self.assertIsInstance(instance.entities, dict)
+        self.assertGreaterEqual(instance.likes_count, 3)
+        self.assertEqual(instance.title, u'Кока-Кола  один из спонсоров  Олимпиады в Сочи.  Хотелось бы  видеть фото- и видео-  репортажи с Эстафеты  олимпийского огня !')
 
         instance = Discussion.remote.fetch_one(id=GROUP_DISCUSSION2_ID, type='GROUP_TOPIC')
 
@@ -181,22 +181,47 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         self.assertEqual(instance.author, instance.owner)
         self.assertEqual(instance.owner, Group.objects.get(pk=GROUP2_ID))
         self.assertIsInstance(instance.entities, dict)
+        self.assertGreaterEqual(instance.reshares_count, 1)
+        self.assertGreaterEqual(instance.likes_count, 36)
+        self.assertGreaterEqual(instance.comments_count, 3)
+        self.assertEqual(instance.title, u'PHP - это действительно просто. Добавьте возможность взаимодействия вашего сайта на PHP с Одноклассниками за 3 простых шага.')
+
+    def test_fetch_mediatopics(self):
+
+        instances = Discussion.remote.fetch_mediatopics([GROUP_DISCUSSION2_ID, GROUP_DISCUSSION1_ID])
+
+        self.assertEqual(Discussion.objects.count(), 2)
+
+        instance = instances.get(pk=GROUP_DISCUSSION1_ID)
+
+        self.assertEqual(instance.author, User.objects.get(pk=163873406852))
+        self.assertEqual(instance.owner, Group.objects.get(pk=GROUP1_ID))
+        self.assertIsInstance(instance.date, datetime)
+        self.assertGreaterEqual(instance.likes_count, 3)
+
+        instance = instances.get(pk=GROUP_DISCUSSION2_ID)
+
+        self.assertEqual(instance.author, instance.owner)
+        self.assertEqual(instance.owner, Group.objects.get(pk=GROUP2_ID))
+        self.assertIsInstance(instance.date, datetime)
+        self.assertGreaterEqual(instance.reshares_count, 1)
+        self.assertGreaterEqual(instance.likes_count, 36)
+        self.assertGreaterEqual(instance.comments_count, 3)
 
     def test_refresh_discussion(self):
 
         instance = Discussion.remote.fetch_one(id=GROUP_DISCUSSION1_ID, type='GROUP_TOPIC')
-        self.assertNotEqual(instance.message, 'temp')
+        self.assertNotEqual(instance.title, 'temp')
 
-        message = instance.message
-        instance.message = 'temp'
+        title = instance.title
+        instance.title = 'temp'
         instance.save()
-        self.assertEqual(instance.message, 'temp')
+        self.assertEqual(instance.title, 'temp')
 
         instance.refresh()
-        self.assertEqual(instance.message, message)
+        self.assertEqual(instance.title, title)
 
-        # TODO: fix this strange error
-        with self.assertRaises(KeyError):
+        with self.assertRaises(OdnoklassnikiContentError):
             instance = DiscussionFactory(id=GROUP_DISCUSSION_GHOST)
             instance.refresh()
 
