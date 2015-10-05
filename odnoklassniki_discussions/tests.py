@@ -185,6 +185,13 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         self.assertGreaterEqual(instance.likes_count, 36)
         self.assertGreaterEqual(instance.comments_count, 3)
         self.assertEqual(instance.title, u'PHP - это действительно просто. Добавьте возможность взаимодействия вашего сайта на PHP с Одноклассниками за 3 простых шага.')
+        self.assertIsInstance(instance.entities['themes'][0]['images'][0], dict)
+
+    def test_fetch_discussion_bug(self):
+
+        instance = Discussion.remote.fetch_one(id=GROUP_DISCUSSION2_ID, type='GROUP_TOPIC', fields='discussion.*,user.*,group.*,theme.*')
+        self.assertEqual(Discussion.objects.count(), 1)
+        self.assertIsInstance(instance.entities['themes'][0]['images'][0], dict) # bug of api
 
     def test_fetch_mediatopics(self):
 
@@ -198,6 +205,7 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         self.assertEqual(instance.owner, Group.objects.get(pk=GROUP1_ID))
         self.assertIsInstance(instance.date, datetime)
         self.assertGreaterEqual(instance.likes_count, 3)
+        self.assertEqual(instance.title, u'Кока-Кола  один из спонсоров  Олимпиады в Сочи.  Хотелось бы  видеть фото- и видео-  репортажи с Эстафеты  олимпийского огня !')
 
         instance = instances.get(pk=GROUP_DISCUSSION2_ID)
 
@@ -207,6 +215,8 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         self.assertGreaterEqual(instance.reshares_count, 1)
         self.assertGreaterEqual(instance.likes_count, 36)
         self.assertGreaterEqual(instance.comments_count, 3)
+        self.assertEqual(instance.title, u'PHP - это действительно просто. Добавьте возможность взаимодействия вашего сайта на PHP с Одноклассниками за 3 простых шага.')
+        self.assertIsInstance(instance.entities['themes'][0]['images'][0], dict)
 
     def test_refresh_discussion(self):
 

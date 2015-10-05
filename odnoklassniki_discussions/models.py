@@ -47,8 +47,13 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
 
         kwargs['discussionId'] = id
         kwargs['discussionType'] = type
-        # with `fields` response doesn't contain `entities` field
-        kwargs['fields'] = self.get_request_fields('discussions', 'media_topic', 'group', 'user', 'theme', prefix=True)
+
+        if 'fields' not in kwargs:
+            # first time to fetch entities.theme.images field, second for all media_topic.* fields
+            # becaouse with `fields` theme.* response doesn't contains `images` field
+            result = super(OdnoklassnikiTimelineManager, self).get(method='get_one', **kwargs)
+            self.get_or_create_from_instance(result)
+            kwargs['fields'] = self.get_request_fields('discussions', 'media_topic', 'group', 'user', 'theme', prefix=True)
 
         result = super(OdnoklassnikiTimelineManager, self).get(method='get_one', **kwargs)
         return self.get_or_create_from_instance(result)
@@ -182,6 +187,14 @@ class Discussion(OdnoklassnikiPKModel):
     class Meta:
         verbose_name = _('Odnoklassniki discussion')
         verbose_name_plural = _('Odnoklassniki discussions')
+
+    def _substitute(self, old_instance):
+        super(Discussion, self)._substitute(old_instance)
+        try:
+            if self.entities['themes'][0]['images'][0] is None:
+                self.entities['themes'][0]['images'][0] = old_instance.entities['themes'][0]['images'][0]
+        except KeyError:
+            pass
 
     def save(self, *args, **kwargs):
 
