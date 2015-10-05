@@ -48,7 +48,7 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
         kwargs['discussionId'] = id
         kwargs['discussionType'] = type
         # with `fields` response doesn't contain `entities` field
-        kwargs['fields'] = self.get_request_fields('discussions', 'media_topic', 'group', 'user', prefix=True)
+        kwargs['fields'] = self.get_request_fields('discussions', 'media_topic', 'group', 'user', 'theme', prefix=True)
 
         result = super(OdnoklassnikiTimelineManager, self).get(method='get_one', **kwargs)
         return self.get_or_create_from_instance(result)
