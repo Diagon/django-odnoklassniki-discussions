@@ -106,7 +106,8 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
 
         kwargs['topic_ids'] = ','.join(map(str, ids))
         kwargs['media_limit'] = 3
-        kwargs['fields'] = self.get_request_fields('media_topic', prefix=True)
+        if 'fields' not in kwargs:
+            kwargs['fields'] = self.get_request_fields('media_topic', prefix=True)
 
         return super(DiscussionRemoteManager, self).fetch(method='mget', **kwargs)
 
