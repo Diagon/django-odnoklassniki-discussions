@@ -37,6 +37,15 @@ GROUP_DISCUSSION_GHOST = 62671523553304
 
 class OdnoklassnikiDiscussionsTest(TestCase):
 
+    def test_fetch_group_discussions_empty_result(self):
+
+        group = GroupFactory(id=57110225354790)
+        discussions = group.fetch_discussions(all=True, after=datetime(2014, 9, 18, 16, 13).replace(tzinfo=timezone.utc))
+
+        self.assertGreaterEqual(discussions.count(), 48)
+        self.assertEqual(discussions.count(), Discussion.objects.count())
+        self.assertEqual(discussions.count(), group.discussions.count())
+
     def test_fetch_group_discussions(self):
 
         group = GroupFactory(id=GROUP3_ID)
