@@ -187,6 +187,8 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         self.assertEqual(instance.title, u'PHP - это действительно просто. Добавьте возможность взаимодействия вашего сайта на PHP с Одноклассниками за 3 простых шага.')
         self.assertIsInstance(instance.entities['themes'][0]['images'][0], dict)
 
+        instance = Discussion.remote.fetch_one(id=64312515425727, type='GROUP_TOPIC')
+
     def test_fetch_discussion_bug(self):
 
         instance = Discussion.remote.fetch_one(id=GROUP_DISCUSSION2_ID, type='GROUP_TOPIC', fields='discussion.*,user.*,group.*,theme.*')

@@ -51,9 +51,10 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
         if 'fields' not in kwargs:
             # first time to fetch entities.theme.images field, second for all media_topic.* fields
             # becaouse with `fields` theme.* response doesn't contains `images` field
+            # TODO: remove this extra call, after test test_fetch_discussion_bug passing
             result = super(OdnoklassnikiTimelineManager, self).get(method='get_one', **kwargs)
             self.get_or_create_from_instance(result)
-            kwargs['fields'] = self.get_request_fields('discussions', 'media_topic', 'group', 'user', 'theme', prefix=True)
+            kwargs['fields'] = self.get_request_fields('discussion', 'media_topic', 'group', 'user', 'theme', prefix=True)
 
         result = super(OdnoklassnikiTimelineManager, self).get(method='get_one', **kwargs)
         return self.get_or_create_from_instance(result)
