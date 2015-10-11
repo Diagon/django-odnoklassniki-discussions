@@ -158,7 +158,7 @@ class Discussion(OdnoklassnikiPKModel):
     title = models.TextField()
     message = models.TextField()
 
-    date = models.DateTimeField()
+    date = models.DateTimeField(db_index=True)
     last_activity_date = models.DateTimeField(null=True)
     last_user_access_date = models.DateTimeField(null=True)
 
@@ -195,7 +195,7 @@ class Discussion(OdnoklassnikiPKModel):
         try:
             if self.entities['themes'][0]['images'][0] is None:
                 self.entities['themes'][0]['images'][0] = old_instance.entities['themes'][0]['images'][0]
-        except KeyError:
+        except (KeyError, TypeError):
             pass
 
     def save(self, *args, **kwargs):

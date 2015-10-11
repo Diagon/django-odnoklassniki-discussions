@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import simplejson as json
 from django.test import TestCase
@@ -66,13 +66,13 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         self.assertEqual(discussions.count(), group.discussions.count())
 
         # test `after` argument
-        after = datetime(2014, 5, 1, tzinfo=timezone.utc)
+        after = timezone.now() - timedelta(90)
         discussions_after = Discussion.remote.fetch_group(group=group, all=True, after=after)
-        self.assertLess(discussions_after.count(), 200)
+        self.assertLess(discussions_after.count(), discussions.count())
         self.assertEqual(discussions_after.filter(date__lt=after).count(), 0)
 
         # test `before` argument
-        before = discussions_after[50].date
+        before = discussions_after.order_by('date')[discussions_after.count() / 2].date
         discussions_before = Discussion.remote.fetch_group(group=group, all=True, after=after, before=before)
         self.assertLess(discussions_before.count(), discussions_after.count())
         self.assertEqual(discussions_before.filter(date__gt=before).count(), 0)
