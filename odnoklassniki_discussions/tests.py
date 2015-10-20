@@ -198,12 +198,6 @@ class OdnoklassnikiDiscussionsTest(TestCase):
 
         instance = Discussion.remote.fetch_one(id=64312515425727, type='GROUP_TOPIC')
 
-    def test_fetch_discussion_bug(self):
-
-        instance = Discussion.remote.fetch_one(id=GROUP_DISCUSSION2_ID, type='GROUP_TOPIC', fields='discussion.*,user.*,group.*,theme.*')
-        self.assertEqual(Discussion.objects.count(), 1)
-        self.assertIsInstance(instance.entities['themes'][0]['images'][0], dict) # bug of api
-
     def test_fetch_mediatopics(self):
 
         instances = Discussion.remote.fetch_mediatopics([GROUP_DISCUSSION2_ID, GROUP_DISCUSSION1_ID])
