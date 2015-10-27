@@ -49,7 +49,7 @@ class DiscussionRemoteManager(OdnoklassnikiTimelineManager):
         kwargs['discussionType'] = type
 
         if 'fields' not in kwargs:
-            kwargs['fields'] = self.get_request_fields('discussion', 'media_topic', 'group', 'user', 'theme',
+            kwargs['fields'] = self.get_request_fields('discussion', 'media_topic', 'group', 'user', 'theme', 'poll',
                                                        'group_photo', prefix=True)
 
         result = super(OdnoklassnikiTimelineManager, self).get(method='get_one', **kwargs)
@@ -163,6 +163,11 @@ class Discussion(OdnoklassnikiPKModel):
     likes_count = models.PositiveIntegerField(default=0)
     reshares_count = models.PositiveIntegerField(default=0)
 
+    # vote
+    last_vote_date = models.DateTimeField(null=True)
+    votes_count = models.PositiveIntegerField(default=0)
+    question = models.TextField()
+
     liked_it = models.BooleanField()
 
     entities = JSONField(null=True)
@@ -261,6 +266,10 @@ class Discussion(OdnoklassnikiPKModel):
         if 'entities' in response and 'media_topics' in response['entities'] \
             and len(response['entities']['media_topics']) == 1:
                 response.update(response['entities'].pop('media_topics')[0])
+                response.update(response['entities'].pop('polls')[0])
+                if 'vote_summary' in response:
+                    response['last_vote_date'] = response['vote_summary']['last_vote_date_ms'] / 1000
+                    response['votes_count'] = response['vote_summary']['count']
 
         # media_topics
         if 'like_summary' in response:

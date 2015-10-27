@@ -20,6 +20,8 @@ GROUP_DISCUSSION1_ID = 62190641299501
 GROUP2_ID = 53038939046008
 GROUP_DISCUSSION2_ID = 62465446084728
 
+GROUPDISCUSSION_POLL_ID = 64079715639311
+
 GROUP3_ID = 53008333209712
 GROUP_DISCUSSION_WITH_MANY_COMMENTS1_ID = 62503929662320
 GROUP_DISCUSSION_WITH_MANY_COMMENTS2_ID = 62458153487216
@@ -76,6 +78,16 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         discussions_before = Discussion.remote.fetch_group(group=group, all=True, after=after, before=before)
         self.assertLess(discussions_before.count(), discussions_after.count())
         self.assertEqual(discussions_before.filter(date__gt=before).count(), 0)
+
+    def test_fetch_group_discussions_less(self):
+
+        group = GroupFactory(id=51893792211123)
+
+        self.assertEqual(Discussion.objects.count(), 0)
+
+        discussions = Discussion.remote.fetch_group(group=group, all=True)
+
+        self.assertGreaterEqual(discussions.count(), 200)
 
     def test_fetch_discussion_likes(self):
 
@@ -197,6 +209,19 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         self.assertIsInstance(instance.entities['themes'][0]['images'][0], dict)
 
         instance = Discussion.remote.fetch_one(id=64312515425727, type='GROUP_TOPIC')
+
+    def test_fetch_discussion_with_poll(self):
+
+        self.assertEqual(Discussion.objects.count(), 0)
+
+        instance = Discussion.remote.fetch_one(id=GROUPDISCUSSION_POLL_ID, type='GROUP_TOPIC')
+
+        self.assertEqual(Discussion.objects.count(), 1)
+        self.assertEqual(instance.id, GROUPDISCUSSION_POLL_ID)
+        self.assertIsInstance(instance.entities, dict)
+        # self.assertIsInstance(instance.last_vote_date, datetime) # strange value in response 1444481497205002
+        self.assertGreaterEqual(instance.votes_count, 115)
+        self.assertEqual(instance.question, u'Понравилась ли вам Неделя кошек из приютов?')
 
     def test_fetch_mediatopics(self):
 
