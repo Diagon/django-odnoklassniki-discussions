@@ -266,10 +266,11 @@ class Discussion(OdnoklassnikiPKModel):
         if 'entities' in response and 'media_topics' in response['entities'] \
             and len(response['entities']['media_topics']) == 1:
                 response.update(response['entities'].pop('media_topics')[0])
-                response.update(response['entities'].pop('polls')[0])
-                if 'vote_summary' in response:
-                    response['last_vote_date'] = response['vote_summary']['last_vote_date_ms'] / 1000
-                    response['votes_count'] = response['vote_summary']['count']
+                if 'polls' in response['entities']:
+                    response.update(response['entities'].pop('polls')[0])
+                    if 'vote_summary' in response:
+                        response['last_vote_date'] = response['vote_summary']['last_vote_date_ms'] / 1000
+                        response['votes_count'] = response['vote_summary']['count']
 
         # media_topics
         if 'like_summary' in response:

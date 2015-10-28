@@ -153,7 +153,7 @@ class OdnoklassnikiDiscussionsTest(TestCase):
         discussion = DiscussionFactory(id=GROUP_DISCUSSION_WITH_MANY_COMMENTS1_ID, object_type='GROUP_TOPIC')
         comments = discussion.fetch_comments(all=True)
 
-        self.assertGreater(comments.count(), 3500)
+        self.assertGreater(comments.count(), 3400)
         self.assertEqual(comments.count(), discussion.comments_count)
         self.assertEqual(comments.count(), Comment.objects.count())
         self.assertEqual(comments.count(), discussion.comments.count())
