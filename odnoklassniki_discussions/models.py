@@ -168,7 +168,7 @@ class Discussion(OdnoklassnikiPKModel):
     votes_count = models.PositiveIntegerField(default=0)
     question = models.TextField()
 
-    liked_it = models.BooleanField()
+    liked_it = models.BooleanField(default=None)
 
     entities = JSONField(null=True)
     ref_objects = JSONField(null=True)
@@ -382,7 +382,7 @@ class Comment(OdnoklassnikiModel):
     date = models.DateTimeField()
 
     likes_count = models.PositiveIntegerField(default=0)
-    liked_it = models.BooleanField()
+    liked_it = models.BooleanField(default=None)
 
     attrs = JSONField(null=True)
 
