@@ -11,7 +11,7 @@ from m2m_history.fields import ManyToManyHistoryField
 from odnoklassniki_api.decorators import atomic, fetch_all
 from odnoklassniki_api.fields import JSONField
 from odnoklassniki_api.models import (OdnoklassnikiModel, OdnoklassnikiPKModel,
-                                      OdnoklassnikiTimelineManager)
+                                      OdnoklassnikiTimelineManager, OdnoklassnikiManager)
 from odnoklassniki_users.models import User
 
 log = logging.getLogger('odnoklassniki_discussions')
@@ -135,6 +135,65 @@ class CommentRemoteManager(OdnoklassnikiTimelineManager):
         discussion.save()
 
         return comments
+
+
+class PollRemoteManager(OdnoklassnikiManager):
+    methods_namespace = 'polls'
+
+    @atomic
+    def fetch(self, ids, **kwargs):
+
+        kwargs['topic_ids'] = ','.join(map(str, ids))
+        kwargs['media_limit'] = 3
+
+        # media_topic.media, media_topic.media_poll_refs - is dependencies, because method returns media topic;
+        # othrwise entities will be empty
+        # kwargs['fields'] = self.get_request_fields('poll.*', 'media_topic.media', 'media_topic.media_poll_refs', prefix=True)
+        kwargs['fields'] = 'poll.*, media_topic.media, media_topic.media_poll_refs'
+
+        return super(PollRemoteManager, self).fetch(method='mget', **kwargs)
+
+
+class AnswerRemoteManager(OdnoklassnikiManager):
+    methods_namespace = 'polls'
+
+    @fetch_all(always_all=True)
+    def fetch_voters(self, answer, offset=0, count=100):
+        """
+        Update and save fields:
+            * votes_count - count of likes
+        Update relations:
+            * voters - users, who vote for this answer
+        """
+        params = {
+            'owner_id': answer.poll.post.remote_id.split('_')[0],
+            'poll_id': answer.poll.pk,
+            'answer_ids': answer.pk,
+            'offset': offset,
+            'count': count,
+            # 'fields': USER_FIELDS,
+        }
+
+        result = self.api_call('voters', **params)[0]
+
+        if offset == 0:
+            try:
+                answer.votes_count = int(result['users']['count'])
+                pp = Poll.remote.fetch(answer.poll.pk, answer.poll.post)
+                if pp and pp.votes_count:
+                    answer.rate = (float(answer.votes_count) / pp.votes_count) * 100
+                else:
+                    answer.rate = 0
+                answer.save()
+            except Exception, err:
+                log.warning('Answer fetching error with message: %s' % err)
+            answer.voters.clear()
+
+        users = self.parse_response_users(result['users'], items_field='items')
+        for user in users:
+            answer.voters.add(user)
+
+        return users
 
 
 class Discussion(OdnoklassnikiPKModel):
@@ -271,6 +330,10 @@ class Discussion(OdnoklassnikiPKModel):
                     if 'vote_summary' in response:
                         response['last_vote_date'] = response['vote_summary']['last_vote_date_ms'] / 1000
                         response['votes_count'] = response['vote_summary']['count']
+
+
+
+
 
         # media_topics
         if 'like_summary' in response:
@@ -489,3 +552,174 @@ class Comment(OdnoklassnikiModel):
                 response['users']).values_list('pk', flat=True))
 
         return users_ids, response
+
+
+class Poll(OdnoklassnikiModel):
+
+    _answers = []
+
+    # Владелец головосвания User or Group
+    owner_content_type = models.ForeignKey(ContentType, related_name='odnoklassniki_polls_polls')
+    owner_id = models.BigIntegerField(db_index=True)
+    owner = generic.GenericForeignKey('owner_content_type', 'owner_id')
+
+    discussion = models.OneToOneField(Discussion, verbose_name=u'Дискуссия, в которой опрос', related_name='poll')
+    question = models.TextField(u'Вопрос')
+    votes_count = models.PositiveIntegerField(
+        u'Голосов', help_text=u'Общее количество ответивших пользователей', db_index=True)
+    last_vote = models.DateTimeField(null=True)
+
+    answer_id = models.PositiveIntegerField(u'Ответ', help_text=u'идентификатор ответа текущего пользователя')
+
+    objects = models.Manager()
+    remote = PollRemoteManager(methods={
+        'mget': 'mediatopic.getByIds',
+    })
+
+    class Meta:
+        verbose_name = u'Опрос OK'
+        verbose_name_plural = u'Опросы OK'
+
+    # @property
+    # def slug(self):
+    #     return '%s?w=poll-%s' % (self.owner.screen_name, self.post.remote_id)
+
+    def __str__(self):
+        return self.question
+
+    def parse(self, response):
+        import pprint
+        pprint.pprint(response)
+
+        poll = response['entities'].pop('polls')[0]
+
+        response['votes_count'] = poll['vote_summary']['count']
+        response['last_vote']   = poll['vote_summary']['last_vote_date_ms']
+
+
+
+        # answers
+        self._answers = [Answer.remote.parse_response(answer) for answer in poll.pop('answers')]
+
+        # owner
+        if 'author_ref' in poll:
+            i = poll.pop('author_ref').split(':')
+            response['author_id'] = i[1]
+            self.author_content_type = ContentType.objects.get(app_label='odnoklassniki_%ss' % i[0], model=i[0])
+        if 'owner_ref' in poll:
+            i = poll.pop('owner_ref').split(':')
+            response['owner_id'] = i[1]
+            self.owner_content_type = ContentType.objects.get(app_label='odnoklassniki_%ss' % i[0], model=i[0])
+
+
+
+        # owner_id = int(response.pop('owner_id'))
+        # self.owner_content_type = ContentType.objects.get_for_model(User if owner_id > 0 else Group)
+        # self.owner_id = abs(owner_id)
+
+        return super(Poll, self).parse(response)
+
+    def save(self, *args, **kwargs):
+        # delete all polls to current post to prevent error
+        # IntegrityError: duplicate key value violates unique constraint "vkontakte_polls_poll_post_id_key"
+        duplicate_qs = Poll.objects.filter(owner_id=self.owner_id)
+        if duplicate_qs.count() > 0:
+            duplicate_qs.delete()
+
+        result = super(Poll, self).save(*args, **kwargs)
+
+        for answer in self._answers:
+            answer.poll = self
+            answer.save()
+        self._answers = []
+
+        return result
+
+
+class Answer(OdnoklassnikiModel):
+
+    poll = models.ForeignKey(Poll, verbose_name=u'Опрос', related_name='answers')
+    text = models.TextField(u'Текст ответа')
+    votes_count = models.PositiveIntegerField(
+        u'Голосов', help_text=u'Количество пользователей, проголосовавших за ответ', db_index=True)
+    last_vote = models.DateTimeField(u'Время последнего голоса', db_index=True)
+
+    voters = models.ManyToManyField(User, verbose_name=u'Голосующие', blank=True, related_name='poll_answers')
+
+    objects = models.Manager()
+    remote = AnswerRemoteManager(methods={
+        'voters': 'getPollAnswerVoters',
+    })
+
+    class Meta:
+        verbose_name = u'Ответ опроса OK'
+        verbose_name_plural = u'Ответы опросов OK'
+
+    def __str__(self):
+        return self.text
+
+    def parse(self, response):
+        summary = response.pop('vote_summary')
+        response['votes_count'] = summary['count']
+        response['last_vote'] = summary['last_vote_date_ms']
+
+        super(Answer, self).parse(response)
+
+    def fetch_voters(self, source='api', **kwargs):
+        if source == 'api':
+            return self.fetch_voters_by_api(**kwargs)
+        return self.fetch_voters_by_parser(**kwargs)
+
+    def fetch_voters_by_parser(self, offset=0):
+        """
+        Update and save fields:
+            * votes_count - count of likes
+        Update relations:
+            * voters - users, who vote for this answer
+        """
+        post_data = {
+            'act': 'poll_voters',
+            'al': 1,
+            'opt_id': self.pk,
+            'post_raw': self.poll.post.remote_id,
+        }
+
+        number_on_page = 40
+        if offset != 0:
+            post_data['offset'] = '%d,0,0,0,0,0,0,0,0' % offset
+
+        log.debug('Fetching votes of answer ID="%s" of poll %s of post %s of group "%s", offset %d' %
+                  (self.pk, self.poll.pk, self.poll.post, self.poll.owner, offset))
+
+        parser = VkontakteParser().request('/al_wall.php', data=post_data)
+
+        if offset == 0:
+            try:
+                self.votes_count = int(parser.content_bs.find('span', {'id': 'wk_poll_row_count0'}).text)
+                self.rate = float(parser.content_bs.find('b', {'id': 'wk_poll_row_percent0'}).text.replace('%', ''))
+                self.save()
+            except:
+                log.warning('Strange markup of first page votes response: "%s"' % parser.content)
+            self.voters.clear()
+
+        #<div class="wk_poll_voter inl_bl">
+        #  <div class="wk_pollph_wrap" onmouseover="WkPoll.bigphOver(this, 159699623)">
+        #    <a class="wk_poll_voter_ph" href="/chitos2">
+        #      <img class="wk_poll_voter_img" src="http://cs406722.vk.me/v406722623/6ca9/zpmoGDj_z_c.jpg" />
+        #    </a>
+        #  </div>
+        #  <div class="wk_poll_voter_name"><a class="wk_poll_voter_lnk" href="/chitos2">Владислав Калакутский</a></div>
+        #</div>
+
+        items = parser.add_users(users=('div', {'class': 'wk_poll_voter inl_bl'}),
+                                 user_link=('a', {'class': 'wk_poll_voter_lnk'}),
+                                 user_photo=('img', {'class': 'wk_poll_voter_img'}),
+                                 user_add=lambda user: self.voters.add(user))
+
+        if len(items) == number_on_page:
+            return self.fetch_voters(offset=offset + number_on_page)
+        else:
+            return self.voters.all()
+
+    def fetch_voters_by_api(self, **kwargs):
+        return Answer.remote.fetch_voters(answer=self, **kwargs)
